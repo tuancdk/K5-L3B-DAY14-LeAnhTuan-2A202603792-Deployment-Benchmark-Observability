@@ -562,6 +562,30 @@ Log JSON của agent (1 dòng):
 
 ---
 
+## Part 7 (ghi chú thêm — báo cáo chính ở [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md))
+
+### Exercise 7.1: Đọc metrics
+
+Output `GET /metrics` của agent v2 sau 1 request `/ask` (trích):
+
+```text
+http_requests_total{method="POST",route="/ask",status="200"} 1.0                 ← Counter
+agent_in_flight_requests 0.0                                                      ← Gauge
+agent_info{model="mock-llm-small",version="v2"} 1.0                               ← Gauge (info)
+http_request_duration_seconds_bucket{le="0.3",method="POST",route="/ask"} 2.0     ← Histogram
+llm_tokens_total{model="mock-llm-small",type="input"} 91.0                        ← Counter
+llm_cost_usd_total{model="mock-llm-small"} 4.6649999999999996e-05                 ← Counter
+agent_question_length_chars_bucket{le="50.0"} 1.0                                 ← Histogram (metric tự thêm)
+agent_question_length_chars_sum 40.0
+```
+
+1. **Counter:** `http_requests_total`, `llm_tokens_total` (chỉ tăng, dùng với `rate()`). **Gauge:** `agent_in_flight_requests` (lên xuống theo số request đang xử lý). **Histogram:** `http_request_duration_seconds` (`_bucket`/`_sum`/`_count`, tính percentile bằng `histogram_quantile()`).
+2. Nếu label `route` dùng URL thật (`request.url.path`), mỗi URL lạ mà bot quét (`/wp-admin`, `/.env`, `/a1b2c3`...) sẽ tạo một **time series mới** cho mỗi tổ hợp `method × route × status`. Với histogram, mỗi series còn nhân thêm ~13 bucket. Hàng nghìn URL ngẫu nhiên làm **cardinality bùng nổ**: Prometheus tốn RAM/disk, query chậm, thậm chí OOM. Kẻ tấn công còn có thể cố tình làm sập hệ thống giám sát. Dùng `route.path` (template, vd `/ask`) và gom URL không khớp vào `unmatched` giữ số series cố định.
+
+**Nhiệm vụ:** đã thêm `agent_question_length_chars` (Histogram, bucket 20/50/100/200/500/1000/2000) vào `develop/app.py`, gọi `QUESTION_LENGTH.observe(len(body.question))` trong `/ask`. Dùng Histogram thay vì label `length=...` vì độ dài có vô số giá trị.
+
+---
+
 ## AI log
 
 | # | Hỏi AI gì | Nhận được gì | Tự sửa / tự kiểm tra thế nào |
@@ -573,3 +597,4 @@ Log JSON của agent (1 dòng):
 | 5 | (Claude Code) Chạy Part 5: health/ready, test SIGTERM trong container Linux, stack 3 instance, `test_stateless.py`, tắt 1 instance | Lệnh chạy, output, giải thích liveness/readiness, stateless, failover của Nginx | Output từ lệnh chạy thật; tự đối chiếu log Nginx để hiểu vì sao request vẫn 200 khi 1 instance chết |
 | 6 | (Claude Code) Viết code Part 6 cho các TODO trong `06-lab-complete/` (config, auth, rate limiter, cost guard, redis client, main, Dockerfile, compose, .dockerignore, .env.example, railway.toml, render.yaml) | Code hoàn chỉnh kèm comment giải thích | Chạy `check_production_ready.py` (static → skip-docker → đầy đủ) sau mỗi bước; chạy script trong container Linux để kiểm tra SIGTERM; test tay qua `docker compose` các ca 401/422/429/503; đọc lại từng file để giải thích được với Lab Coach |
 | 7 | (Claude Code) Kiểm tra deploy Render qua Claude in Chrome, chạy 4 lệnh CP6, soạn `DEPLOYMENT.md`, so sánh `railway.toml`/`render.yaml`, mô tả pipeline Cloud Run | URL, kết quả 200/200/401/200, bảng so sánh, tóm tắt pipeline | Tự deploy Blueprint trên Render; tự lấy key từ dashboard (không dán vào chat); đối chiếu bảng so sánh với 2 file config; đọc lại `cloudbuild.yaml`, `service.yaml` |
+| 8 | (Claude Code) CP7: thêm metric 7.1, chạy load test 4 mức + 3 mức `MOCK_SLOW_RATE`, eval v1/v2, sửa `KNOWLEDGE_BASE`, viết `.github/workflows/eval.yml`, điền mục 1–3 `BENCHMARK_REPORT.md` | Lệnh chạy, file JSON, nhận xét | Mọi số trong báo cáo trích bằng script từ `reports/*.json`; tự kiểm lại phép tính (Little's law, tỉ lệ cost/câu đúng); xử lý lỗi encoding Windows bằng `PYTHONUTF8=1` (không sửa script) |
